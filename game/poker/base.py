@@ -5,9 +5,11 @@
 @file:base.py
 @time:2021/03/10
 """
-
+import json
 import itertools
 import random
+import socket
+from threading import Thread
 
 
 class Card:
@@ -79,20 +81,64 @@ class Player:
         self.cards = sorted(self.cards)
 
 
-class PokerServer:
+class Message:
 
-    def __init__(self, host, port):
-        pass
+    @classmethod
+    def encode(cls, signal, value):
+        return json.dumps({'signal': signal, 'value': value}).encode()
+
+    @classmethod
+    def decode(cls, message):
+        return json.loads(message.decode())
 
 
-# p = Player('alan')
-# print(p)
-# p.receive_card(Card(14, 2))
-# p.receive_card(Card(7, 1))
-# print(p.show_cards())
-cs = CardSet(range(2, 15))
-cs.cards = sorted(cs.cards, key=lambda x: x.value)
-length = 0
-while length < len(cs.cards):
-    print(''.join([str(i) for i in cs.cards[length: length+4]]))
-    length += 4
+class BaseSocket:
+
+    def __init__(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def get_method(self, conn: socket.socket, signal):
+        func = getattr(self, signal, None)
+        try:
+            return func(conn)
+        except AttributeError:
+            conn.send(Message.encode('print', "指令错误，请重新输入"))
+            raise AttributeError(f"'PokerServer' object has no method '{signal}'")
+        except TypeError:
+            conn.send(Message.encode('print', "指令错误，请重新输入"))
+            raise TypeError(f"'PokerServer.{signal}' is not callable")
+        finally:
+            conn.close()
+
+
+class PokerServer(BaseSocket):
+
+    def __init__(self, host='localhost', port=8899, n=5):
+        super().__init__()
+        self.socket.bind((host, port))
+        self.socket.listen(n)
+        self.rooms = []
+
+    def run(self):
+        while True:
+            conn, _ = self.socket.accept()
+            signal = conn.recv(1024)
+            t = Thread(target=self.get_method, args=(conn, signal))
+            t.start()
+
+
+class PokerClient(BaseSocket):
+
+    def __init__(self, host='localhost', port=8899):
+        super().__init__()
+        self.socket.connect((host, port))
+
+    def run(self, callback):
+        while True:
+            signal = input()
+            self.socket.send(signal.encode())
+            data = self.socket.recv(1024)
+            callback(data)
+
+
+server = PokerServer()

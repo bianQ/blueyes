@@ -9,7 +9,12 @@ import json
 import itertools
 import random
 import socket
+import logging
+from logging import NullHandler
 from threading import Thread
+
+
+log = logging.getLogger(__name__)
 
 
 class Card:
@@ -83,13 +88,16 @@ class Player:
 
 class Message:
 
-    @classmethod
-    def encode(cls, signal, value):
-        return json.dumps({'signal': signal, 'value': value}).encode()
+    def __init__(self, signal, value):
+        self.signal = signal
+        self.value = value
+
+    def encode(self):
+        return json.dumps({'signal': self.signal, 'value': self.value}).encode()
 
     @classmethod
     def decode(cls, message):
-        return json.loads(message.decode())
+        return Message(**json.loads(message.decode()))
 
 
 class BaseSocket:
@@ -97,18 +105,27 @@ class BaseSocket:
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    def get_method(self, conn: socket.socket, signal):
-        func = getattr(self, signal, None)
+    def process(self, conn: socket.socket, message: Message, logger=log, is_server=True):
+        """
+        根据 signal 获取执行函数并调用
+        Args:
+            conn: socket 连接
+            message:
+            logger: 日志处理模块
+            is_server: 是否是服务端
+        """
+        func = getattr(self, message.signal, None)
+        send_msg = Message(signal='print', value="指令错误，请重新输入")
         try:
-            return func(conn)
+            send_msg = func(conn, message.value)
         except AttributeError:
-            conn.send(Message.encode('print', "指令错误，请重新输入"))
-            raise AttributeError(f"'PokerServer' object has no method '{signal}'")
+            logger.error(f"'PokerServer' object has no method '{send_msg.signal}'")
         except TypeError:
-            conn.send(Message.encode('print', "指令错误，请重新输入"))
-            raise TypeError(f"'PokerServer.{signal}' is not callable")
+            logger.error(f"'PokerServer.{send_msg.signal}' is not callable")
         finally:
-            conn.close()
+            if is_server:
+                conn.send(send_msg.encode())
+                conn.close()
 
 
 class PokerServer(BaseSocket):
@@ -122,8 +139,8 @@ class PokerServer(BaseSocket):
     def run(self):
         while True:
             conn, _ = self.socket.accept()
-            signal = conn.recv(1024)
-            t = Thread(target=self.get_method, args=(conn, signal))
+            rec_msg = conn.recv(1024)
+            t = Thread(target=self.process, args=(conn, rec_msg))
             t.start()
 
 
@@ -133,12 +150,17 @@ class PokerClient(BaseSocket):
         super().__init__()
         self.socket.connect((host, port))
 
-    def run(self, callback):
+    def print(self, ):
+        pass
+
+    def run(self):
         while True:
-            signal = input()
-            self.socket.send(signal.encode())
-            data = self.socket.recv(1024)
-            callback(data)
+            data = input()
+            signal, value = data.strip().split(' ')
+            send_msg = Message(signal=signal, value=value.strip())
+            self.process(self.socket, send_msg)
+            rec_msg = self.socket.recv(1024)
+            self.print(rec_msg)
 
 
 server = PokerServer()

@@ -10,8 +10,9 @@ import itertools
 import random
 import socket
 import logging
-from logging import NullHandler
+import time
 from threading import Thread
+from typing import Iterable
 
 
 log = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class Card:
 
 class CardSet:
 
-    def __init__(self, values):
+    def __init__(self, values: Iterable[int]):
         self.cards = [Card(v, f) for f, v in itertools.product(range(1, 5), values)]
 
     def __repr__(self):
@@ -63,18 +64,38 @@ class CardSet:
     def shuffle(self):
         random.shuffle(self.cards)
 
-    def distribute(self, num=1):
+    def deal(self, room):
         pass
 
 
 class Player:
 
-    def __init__(self, name):
+    def __init__(self, name, conn: socket.socket, status=0):
         self.name = name
         self.cards = []
+        self.status = status
+        self.room = None
+        self.prev = None
+        self.next = None
+        self.conn = conn
 
     def __repr__(self):
         return f"<Player[{self.name}]>"
+
+    def enter_room(self, room):
+        room.players.append(self)
+        self.room = room
+
+    def exit_room(self):
+        if self.room and self in self.room.players:
+            self.room.players.remove(self)
+            self.room = None
+
+    def ready(self):
+        self.status = 1
+
+    def is_ready(self):
+        return self.status == 1
 
     def receive_card(self, card: Card):
         self.cards.append(card)
@@ -84,6 +105,18 @@ class Player:
 
     def card_sort(self):
         self.cards = sorted(self.cards)
+
+
+class Room:
+
+    def __init__(self):
+        self.id = int(time.time())
+        self.players = dict()
+        self.first_player = None
+        self.last_player = None
+
+    def is_ready(self):
+        return all([player.is_ready() for player in self.players.values()])
 
 
 class Message:
@@ -115,7 +148,7 @@ class BaseSocket:
             is_server: 是否是服务端
         """
         func = getattr(self, message.signal, None)
-        send_msg = Message(signal='print', value="指令错误，请重新输入")
+        send_msg = "指令错误，请重新输入"
         try:
             send_msg = func(conn, message.value)
         except AttributeError:
@@ -124,8 +157,7 @@ class BaseSocket:
             logger.error(f"'PokerServer.{send_msg.signal}' is not callable")
         finally:
             if is_server:
-                conn.send(send_msg.encode())
-                conn.close()
+                conn.send(send_msg)
 
 
 class PokerServer(BaseSocket):
@@ -150,7 +182,7 @@ class PokerClient(BaseSocket):
         super().__init__()
         self.socket.connect((host, port))
 
-    def print(self, ):
+    def print(self, msg):
         pass
 
     def run(self):

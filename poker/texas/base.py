@@ -7,7 +7,6 @@
 """
 
 from enum import Enum
-from typing import Iterable
 
 from poker import PokerServer, PokerClient, CardSet, Player, Room
 
@@ -84,8 +83,8 @@ class TexasCardSet(CardSet):
 
 class TexasPlayer(Player):
 
-    def __init__(self, username, conn, chips=500, status=0):
-        super(TexasPlayer, self).__init__(username, conn, status)
+    def __init__(self, username, chips=500, status=0):
+        super(TexasPlayer, self).__init__(username, status)
         self.chips = chips
         self.hole_cards = []
         self.call_chips = 0
@@ -135,13 +134,6 @@ class TexasServer(PokerServer):
         self.players = dict()
         self.rooms = []
 
-    def login(self, conn, username: str):
-        self.players.setdefault(username, TexasPlayer(username, conn))
-        conn.send("欢迎来到德州扑克！")
-
-    def get_rooms(self):
-        return self.rooms
-
     def open_room(self, username):
         player = self.players[username]
         room = TexasRoom()
@@ -149,37 +141,25 @@ class TexasServer(PokerServer):
         self.rooms.append(room)
 
 
-class TexasMenu(Enum):
+class Element:
 
-    room_list = 'rl'
-    open_room = 'or'
-    enter_room = 'er'
-    player_list = 'pl'
-    ready = 'r'
-    bet = 'bet'
-    check = 'ck'
-    raise_ = 'rs'
-    call = 'cl'
-    allin = 'ali'
-    fold = 'f'
-    show_cards = 'sc'
-    quit = 'q'
+    def __init__(self, name, code, signal, description=None):
+        self.name = name,
+        self.code = code,
+        self.signal = signal
+        self.description = description
 
-    @classmethod
-    def hill(cls):
-        return cls.room_list, cls.open_room, cls.enter_room, cls.quit
+    def __str__(self):
+        return f"{self.code}: {self.name}{self.description or ''}"
 
-    @classmethod
-    def room(cls):
-        return cls.ready, cls.player_list, cls.quit
 
-    @classmethod
-    def game(cls):
-        return cls.bet, cls.check, cls.raise_, cls.call, cls.allin, cls.fold, cls.show_cards, cls.quit
+class HillMenu(Enum):
 
-    @classmethod
-    def print(cls, menus: Iterable[Enum]):
-        return '\n'.join([f"{i.name}: {i.value}" for i in menus])
+    my_info = Element('个人信息', 'a', 'Texas.my_info')
+    room_list = Element('房间列表', 'b', 'Texas.get_rooms')
+    open_room = Element('创建房间', 'c', 'Texas.')
+    enter_room = Element('进入房间', 'd', 'Texas.enter_room', '（d + "空格" + 房间ID）')
+    quit = Element('退出游戏', 'q', 'Texas.quit')
 
 
 class TexasClient(PokerClient):
@@ -187,7 +167,13 @@ class TexasClient(PokerClient):
     def __init__(self, host='localhost', port=8889):
         super(TexasClient, self).__init__(host, port)
 
-    def login(self, player=TexasPlayer):
-        super(TexasClient, self).login(player)
-        self.logger.info(f"{self.player.name}，欢迎来到德州扑克")
-        print(TexasMenu.print(TexasMenu.hill()))
+    def login(self):
+        username = input("请输入用户名：")
+        self.send('Texas.login', username=username)
+        recv = self.socket.recv(1024)
+        self.logger.info(recv.decode())
+        print()
+
+    def run(self):
+        self.login()
+        super().run()

@@ -2,11 +2,14 @@
 # -*- coding: UTF-8 -*-
 """
 @author:Alan
-@file:server.py
+@file:base.py
 @time:2021/03/13
 """
 
-from game.poker.base import PokerServer, CardSet, Player, Room, Message
+from enum import Enum
+from typing import Iterable
+
+from poker import PokerServer, PokerClient, CardSet, Player, Room
 
 
 class TexasRoom(Room):
@@ -127,7 +130,7 @@ class TexasPlayer(Player):
 
 class TexasServer(PokerServer):
 
-    def __init__(self, host='localhost', port=8899, n=5):
+    def __init__(self, host='localhost', port=8889, n=5):
         super(TexasServer, self).__init__(host, port, n)
         self.players = dict()
         self.rooms = []
@@ -139,8 +142,52 @@ class TexasServer(PokerServer):
     def get_rooms(self):
         return self.rooms
 
-    def create_room(self, username):
+    def open_room(self, username):
         player = self.players[username]
         room = TexasRoom()
         room.receive_player(player)
         self.rooms.append(room)
+
+
+class TexasMenu(Enum):
+
+    room_list = 'rl'
+    open_room = 'or'
+    enter_room = 'er'
+    player_list = 'pl'
+    ready = 'r'
+    bet = 'bet'
+    check = 'ck'
+    raise_ = 'rs'
+    call = 'cl'
+    allin = 'ali'
+    fold = 'f'
+    show_cards = 'sc'
+    quit = 'q'
+
+    @classmethod
+    def hill(cls):
+        return cls.room_list, cls.open_room, cls.enter_room, cls.quit
+
+    @classmethod
+    def room(cls):
+        return cls.ready, cls.player_list, cls.quit
+
+    @classmethod
+    def game(cls):
+        return cls.bet, cls.check, cls.raise_, cls.call, cls.allin, cls.fold, cls.show_cards, cls.quit
+
+    @classmethod
+    def print(cls, menus: Iterable[Enum]):
+        return '\n'.join([f"{i.name}: {i.value}" for i in menus])
+
+
+class TexasClient(PokerClient):
+
+    def __init__(self, host='localhost', port=8889):
+        super(TexasClient, self).__init__(host, port)
+
+    def login(self, player=TexasPlayer):
+        super(TexasClient, self).login(player)
+        self.logger.info(f"{self.player.name}，欢迎来到德州扑克")
+        print(TexasMenu.print(TexasMenu.hill()))

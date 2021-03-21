@@ -9,13 +9,12 @@ import json
 import itertools
 import random
 import socket
-import logging
 import time
 from threading import Thread
 from typing import Iterable
 
-
-log = logging.getLogger(__name__)
+from logger import create_logger
+from config import PROJECT_DIR
 
 
 class Card:
@@ -137,38 +136,43 @@ class BaseSocket:
 
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.signals = {}
+        self.logger = create_logger(PROJECT_DIR, 'Poker')
 
-    def process(self, conn: socket.socket, message: Message, logger=log, is_server=True):
+    def process(self, conn: socket.socket, message: Message):
         """
         根据 signal 获取执行函数并调用
         Args:
             conn: socket 连接
             message:
-            logger: 日志处理模块
-            is_server: 是否是服务端
         """
-        func = getattr(self, message.signal, None)
-        send_msg = "指令错误，请重新输入"
-        try:
-            send_msg = func(conn, message.value)
-        except AttributeError:
-            logger.error(f"'PokerServer' object has no method '{send_msg.signal}'")
-        except TypeError:
-            logger.error(f"'PokerServer.{send_msg.signal}' is not callable")
-        finally:
-            if is_server:
-                conn.send(send_msg)
+        signal_name, signal_value = message.signal.split('.')
+        signal = self.signals.get(signal_name)
+        if signal is None:
+            self.logger.error(f"{message.signal} is not found")
+            conn.send("指令错误，请重新输入".encode())
+        func = signal.deferred_functions.get(signal_value)
+        if func is None:
+            self.logger.error(f"{message.signal} is not found")
+            conn.send("指令错误，请重新输入".encode())
+        func(conn, message.value)
+
+    def register_event(self, signal, name):
+        self.signals[name] = signal
 
 
 class PokerServer(BaseSocket):
 
     def __init__(self, host='localhost', port=8899, n=5):
         super().__init__()
+        self.host = host
+        self.port = port
         self.socket.bind((host, port))
         self.socket.listen(n)
         self.rooms = []
 
     def run(self):
+        self.logger.info(f"socket:{self.host}:{self.port} 服务开启成功")
         while True:
             conn, _ = self.socket.accept()
             rec_msg = conn.recv(1024)
@@ -181,11 +185,17 @@ class PokerClient(BaseSocket):
     def __init__(self, host='localhost', port=8899):
         super().__init__()
         self.socket.connect((host, port))
+        self.player = None
 
     def print(self, msg):
         pass
 
+    def login(self, player=Player):
+        username = input("请输入用户名：")
+        self.player = player(username, self.socket)
+
     def run(self):
+        self.login()
         while True:
             data = input()
             signal, value = data.strip().split(' ')
@@ -195,4 +205,19 @@ class PokerClient(BaseSocket):
             self.print(rec_msg)
 
 
-server = PokerServer()
+class Signal:
+
+    def __init__(self, name):
+        self.name = name
+        self.deferred_functions = {}
+
+    def add_url_rule(self, rule, view_func=None):
+        self.deferred_functions[rule] = view_func
+
+    def add(self, rule):
+
+        def decorator(f):
+            self.add_url_rule(rule, f)
+            return f
+
+        return decorator

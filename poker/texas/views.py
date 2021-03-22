@@ -7,6 +7,7 @@
 @File:      views.py
 """
 import socket
+from functools import wraps
 
 from poker import Message
 from poker.texas import texas_sg
@@ -17,8 +18,9 @@ def _format_menu(menu):
     return '\n'.join([str(m.value) for m in menu])
 
 
-def login_required(*args, **kwargs):
-    def wrapper(func):
+def login_required(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
         conn = args[1]
         if not isinstance(conn, socket.socket):
             return

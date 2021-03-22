@@ -12,6 +12,39 @@ from enum import Enum
 from poker import BaseSocket, CardSet, Player, Room, Message
 
 
+class Element:
+
+    def __init__(self, name, code, signal, description=None):
+        self.name = name
+        self.code = code
+        self.signal = signal
+        self.description = description
+
+    def __str__(self):
+        return f"{self.code}: {self.name}{self.description or ''}"
+
+
+class HillMenu(Enum):
+
+    __SignalMap__ = {}
+
+    my_info = Element('个人信息', 'a', 'Texas.my_info')
+    room_list = Element('房间列表', 'b', 'Texas.get_rooms')
+    open_room = Element('创建房间', 'c', 'Texas.')
+    enter_room = Element('进入房间', 'd', 'Texas.enter_room', '（d + "空格" + 房间ID）')
+    help = Element('帮助', 'h', 'Texas.help')
+    quit = Element('退出游戏', 'q', 'Texas.quit')
+
+    def __init__(self, element: Element):
+        self.code = element.code
+        self.signal = element.signal
+        self.__class__.__SignalMap__[self.code] = self.signal
+
+    @classmethod
+    def get_signal(cls, code):
+        return cls.__SignalMap__.get(code)
+
+
 class TexasRoom(Room):
 
     def __init__(self):
@@ -147,7 +180,11 @@ class TexasServer(BaseSocket):
             conn: socket 连接
             message:
         """
-        signal_name, signal_value = message.signal.split('.')
+        if message.signal:
+            signal_name, signal_value = message.signal.split('.')
+        else:
+            player = self.players[conn]
+            signal_name, signal_value = player.menu.get_signal(message.code).split('.')
         signal = self.signals.get(signal_name)
         if signal is None:
             self.logger.error(f"{message.signal} is not found")
@@ -182,28 +219,6 @@ class TexasServer(BaseSocket):
         self.rooms.append(room)
 
 
-class Element:
-
-    def __init__(self, name, code, signal, description=None):
-        self.name = name
-        self.code = code
-        self.signal = signal
-        self.description = description
-
-    def __str__(self):
-        return f"{self.code}: {self.name}{self.description or ''}"
-
-
-class HillMenu(Enum):
-
-    my_info = Element('个人信息', 'a', 'Texas.my_info')
-    room_list = Element('房间列表', 'b', 'Texas.get_rooms')
-    open_room = Element('创建房间', 'c', 'Texas.')
-    enter_room = Element('进入房间', 'd', 'Texas.enter_room', '（d + "空格" + 房间ID）')
-    help = Element('帮助', 'h', 'Texas.help')
-    quit = Element('退出游戏', 'q', 'Texas.quit')
-
-
 class TexasClient(BaseSocket):
 
     def __init__(self, host='localhost', port=8899):
@@ -211,15 +226,15 @@ class TexasClient(BaseSocket):
         self.socket.connect((host, port))
         self.player = None
 
-    def send(self, signal, *args):
-        self.socket.send(Message(signal=signal, args=args).encode())
+    def send(self, code=None, signal=None, args=()):
+        self.socket.send(Message(code=code, signal=signal, args=args).encode())
 
     def listen_input(self):
         data = input()
         if not data:
             return
         args = [i for i in data.strip().split(' ') if i]
-        self.send(args[0], *args)
+        self.send(code=args[0], args=args[1:])
 
     def recv(self):
         while True:
@@ -235,7 +250,7 @@ class TexasClient(BaseSocket):
 
     def login(self):
         username = input("请输入用户名：")
-        self.send('Texas.login', username)
+        self.send(signal='Texas.login', args=(username, ))
         recv = Message.decode(self.socket.recv(1024))
         self.logger.info(recv.text)
         if not recv.is_success():

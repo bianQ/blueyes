@@ -118,7 +118,14 @@ class Room:
 
 class Message:
 
-    def __init__(self, signal=None, args=None, status=None, text=None, payload=None):
+    def __init__(self,
+                 code=None,
+                 signal=None,
+                 args=None,
+                 status=None,
+                 text=None,
+                 payload=None):
+        self.code = code
         self.signal = signal
         self.args = args
         self.status = status

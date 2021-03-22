@@ -8,6 +8,7 @@
 """
 import socket
 
+from poker import Message
 from poker.texas import texas_sg
 from poker.texas import TexasServer, TexasPlayer, HillMenu
 
@@ -31,12 +32,14 @@ def login_required(*args, **kwargs):
 @texas_sg.add('login')
 def login(server: TexasServer, conn, username, chips=None):
     if username in [player.name for player in server.players.values()]:
-        conn.send(f"{username}已登录".encode())
+        conn.send(Message(text=f"{username}已登录", status=400).encode())
         return
-    server.players[conn] = TexasPlayer(username)
+    player = TexasPlayer(username)
+    player.menu = HillMenu
+    server.players[conn] = player
     server.logger.info(f"玩家<{username}>登录游戏")
-    conn.send(f"{username}，欢迎来到德州扑克".encode())
-    conn.send(_format_menu(HillMenu).encode())
+    conn.send(Message(text=f"{username}，欢迎来到德州扑克", status=200).encode())
+    conn.send(Message(text='输入 h/H 查看帮助菜单').encode())
 
 
 @texas_sg.add('get_rooms')

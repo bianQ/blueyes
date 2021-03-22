@@ -10,7 +10,6 @@ import itertools
 import random
 import socket
 import time
-from threading import Thread
 from typing import Iterable
 
 from logger import create_logger
@@ -119,16 +118,22 @@ class Room:
 
 class Message:
 
-    def __init__(self, signal, args):
+    def __init__(self, signal=None, args=None, status=None, text=None, payload=None):
         self.signal = signal
         self.args = args
+        self.status = status
+        self.text = text
+        self.payload = payload
 
     def encode(self):
-        return json.dumps({'signal': self.signal, 'args': self.args}).encode()
+        return json.dumps(self.__dict__).encode()
 
     @classmethod
     def decode(cls, message):
         return Message(**json.loads(message.decode()))
+
+    def is_success(self):
+        return self.status == 200
 
 
 class BaseSocket:
@@ -138,80 +143,8 @@ class BaseSocket:
         self.signals = {}
         self.logger = create_logger(PROJECT_DIR, 'Poker')
 
-    def process(self, conn: socket.socket, message: Message):
-        """
-        根据 signal 获取执行函数并调用
-        Args:
-            conn: socket 连接
-            message:
-        """
-        signal_name, signal_value = message.signal.split('.')
-        signal = self.signals.get(signal_name)
-        if signal is None:
-            self.logger.error(f"{message.signal} is not found")
-            conn.send("指令错误，请重新输入".encode())
-            return
-        func = signal.deferred_functions.get(signal_value)
-        if func is None:
-            self.logger.error(f"{message.signal} is not found")
-            conn.send("指令错误，请重新输入".encode())
-            return
-        func(self, conn, *message.args)
-
     def register_event(self, signal, name):
         self.signals[name] = signal
-
-
-class PokerServer(BaseSocket):
-
-    def __init__(self, host='localhost', port=8899, n=5):
-        super().__init__()
-        self.host = host
-        self.port = port
-        self.socket.bind((host, port))
-        self.socket.listen(n)
-        self.rooms = []
-
-    def thread(self, conn):
-        while True:
-            try:
-                rec_msg = conn.recv(1024)
-                self.process(conn, Message.decode(rec_msg))
-            except ConnectionResetError:
-                pass
-
-    def run(self):
-        self.logger.info(f"socket:{self.host}:{self.port} 服务开启成功")
-        while True:
-            conn, _ = self.socket.accept()
-            t = Thread(target=self.thread, args=(conn, ))
-            t.start()
-
-
-class PokerClient(BaseSocket):
-
-    def __init__(self, host='localhost', port=8899):
-        super().__init__()
-        self.socket.connect((host, port))
-        self.player = None
-
-    def send(self, signal, *args):
-        self.socket.send(Message(signal=signal, args=args).encode())
-
-    def listen_input(self):
-        data = input()
-        args = [i for i in data.strip().split(' ') if i]
-        self.send(args[0], *args)
-
-    def recv(self):
-        while True:
-            print(self.socket.recv(1024).decode())
-
-    def run(self):
-        t = Thread(target=self.recv)
-        t.start()
-        while True:
-            self.listen_input()
 
 
 class Signal:

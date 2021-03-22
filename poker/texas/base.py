@@ -10,6 +10,7 @@ from threading import Thread
 from enum import Enum
 
 from poker import BaseSocket, CardSet, Player, Room, Message
+from poker.texas.func import ignore_menu
 
 
 class Element:
@@ -165,7 +166,6 @@ class TexasPlayer(Player):
     def __init__(self, username, chips=500, status=0):
         super(TexasPlayer, self).__init__(username, status)
         self.chips = chips
-        self.hole_cards = []
         self.call_chips = 0
         self.bet_chips = 0
         self.raise_chips = 0
@@ -245,6 +245,7 @@ class TexasServer(BaseSocket):
             signal_name, signal_value = message.signal.split('.')
         else:
             player = self.players[conn]
+            # todo 检测请求视图是否被允许
             _signal = player.menu.get_signal(message.code)
             if _signal:
                 signal_name, signal_value = _signal.split('.')
@@ -260,7 +261,10 @@ class TexasServer(BaseSocket):
             self.logger.error(f"{message.signal} is not found")
             conn.send(Message(text="指令错误，请重新输入").encode())
             return
-        func(self, conn, *message.args)
+        try:
+            func(self, conn, *message.args)
+        except Exception as e:
+            conn.send(Message(text=str(e)).encode())
 
     def get_conn(self, player):
         for conn, p in self.players.items():

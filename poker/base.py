@@ -70,7 +70,7 @@ class Player:
 
     def __init__(self, name, status=0):
         self.name = name
-        self.cards = []
+        self.hole_cards = []
         self.status = status
         self.room = None
         self.prev = None
@@ -95,13 +95,13 @@ class Player:
         return self.status == 1
 
     def receive_card(self, card: Card):
-        self.cards.append(card)
+        self.hole_cards.append(card)
 
     def show_cards(self):
-        return ''.join([str(card) for card in self.cards])
+        return ''.join([str(card) for card in self.hole_cards])
 
     def card_sort(self):
-        self.cards = sorted(self.cards)
+        self.hole_cards = sorted(self.hole_cards)
 
 
 class Room:

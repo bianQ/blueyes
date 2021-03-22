@@ -12,6 +12,7 @@ from functools import wraps
 from poker import Message
 from poker.texas import texas_sg
 from poker.texas import TexasServer, TexasPlayer, HillMenu, TexasRoom, RoomMenu, GameMenu
+from poker.texas.func import ignore_menu
 
 
 def _format_menu(menu, ignore_list=None):
@@ -238,17 +239,7 @@ def show_cards(server: TexasServer, conn):
 @login_required
 def help_list(server: TexasServer, conn):
     player = server.players[conn]
-    ignore_list = []
-    if isinstance(player.menu, GameMenu):
-        if player != player.room.current_player or player.folded:
-            ignore_list = ['bet', 'check', 'raise_', 'fold', 'call', 'allin']
-        else:
-            if player.room.public_bet == 0:
-                ignore_list.extend(['raise_', 'call'])
-            if player.room.public_bet > 0:
-                ignore_list.append('check')
-            if player.room.public_bet > player.chips:
-                ignore_list.extend(['bet', 'raise_', 'call'])
+    ignore_list = ignore_menu(player)
     conn.send(Message(text=_format_menu(player.menu, ignore_list), status=200).encode())
 
 

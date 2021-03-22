@@ -30,8 +30,29 @@ class HillMenu(Enum):
 
     my_info = Element('个人信息', 'a', 'Texas.my_info')
     room_list = Element('房间列表', 'b', 'Texas.get_rooms')
-    open_room = Element('创建房间', 'c', 'Texas.')
+    open_room = Element('创建房间', 'c', 'Texas.create_room')
     enter_room = Element('进入房间', 'd', 'Texas.enter_room', '（d + "空格" + 房间ID）')
+    help = Element('帮助', 'h', 'Texas.help')
+    quit = Element('退出游戏', 'q', 'Texas.quit')
+
+    def __init__(self, element: Element):
+        self.code = element.code
+        self.signal = element.signal
+        self.__class__.__SignalMap__[self.code] = self.signal
+
+    @classmethod
+    def get_signal(cls, code):
+        return cls.__SignalMap__.get(code)
+
+
+class RoomMenu(Enum):
+
+    __SignalMap__ = {}
+
+    my_info = Element('个人信息', 'a', 'Texas.my_info')
+    player_list = Element('玩家列表', 'b', 'Texas.player_list')
+    ready = Element('准备', 'c', 'Texas.ready')
+    exit_room = Element('退出房间', 'd', 'Texas.exit_room')
     help = Element('帮助', 'h', 'Texas.help')
     quit = Element('退出游戏', 'q', 'Texas.quit')
 
@@ -64,14 +85,6 @@ class TexasRoom(Room):
             self.card_set.turn()
         elif public_cards_num == 4:
             self.card_set.river()
-
-    def receive_player(self, player):
-        if not self.players:
-            self.first_player = player
-            self.last_player = player
-        player.prev = self.last_player
-        player.next = self.first_player
-        player.enter_room(self)
 
     def receive_chips(self, username, chip):
         bet_player = self.players[username]
@@ -132,6 +145,10 @@ class TexasPlayer(Player):
         self.folded = False
         self.bet_round_chips = 0
         self.menu = None
+        self.role = None
+
+    def __str__(self):
+        return f"<{self.name}> 筹码量 {self.chips}{' 已准备' if self.ready() else ''}"
 
     def bet(self, chips):
         self.bet_chips = chips
@@ -187,7 +204,11 @@ class TexasServer(BaseSocket):
             signal_name, signal_value = message.signal.split('.')
         else:
             player = self.players[conn]
-            signal_name, signal_value = player.menu.get_signal(message.code).split('.')
+            _signal = player.menu.get_signal(message.code)
+            if _signal:
+                signal_name, signal_value = _signal.split('.')
+            else:
+                signal_name = None
         signal = self.signals.get(signal_name)
         if signal is None:
             self.logger.error(f"{message.signal} is not found")
@@ -208,7 +229,7 @@ class TexasServer(BaseSocket):
                     return
                 self.process(conn, Message.decode(rec_msg))
             except ConnectionResetError:
-                pass
+                self.players.pop(conn, None)
 
     def run(self):
         self.logger.info(f"socket:{self.host}:{self.port} 服务开启成功")

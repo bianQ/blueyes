@@ -11,7 +11,7 @@ from functools import wraps
 
 from poker import Message
 from poker.texas import texas_sg
-from poker.texas import TexasServer, TexasPlayer, HillMenu
+from poker.texas import TexasServer, TexasPlayer, HillMenu, TexasRoom, RoomMenu
 
 
 def _format_menu(menu):
@@ -51,10 +51,57 @@ def get_rooms(server: TexasServer, conn):
     conn.send(Message(text=text, status=200).encode())
 
 
+@texas_sg.add('create_room')
+@login_required
+def create_rooms(server: TexasServer, conn):
+    room = TexasRoom()
+    player = server.players[conn]
+    room.receive_player(player)
+    server.rooms.append(room)
+    player.menu = RoomMenu
+    text = f"创建房间成功，房间ID {room.id}\n" \
+           f"输入 h/H 查看帮助菜单"
+    conn.send(Message(text=text, status=200).encode())
+
+
+@texas_sg.add('enter_room')
+@login_required
+def enter_room(server: TexasServer, conn, room_index):
+    player = server.players[conn]
+    room = server.rooms[int(room_index)]
+    room.receive_player(player)
+    player.menu = RoomMenu
+    text = f"进入房间成功，房间ID {room.id}\n" \
+           f"输入 h/H 查看帮助菜单"
+    conn.send(Message(text=text, status=200).encode())
+
+
+@texas_sg.add('exit_room')
+@login_required
+def exit_room(server: TexasServer, conn, room_index):
+    player = server.players[conn]
+    player.exit_room()
+    player.menu = HillMenu
+    text = f"已退出房间\n" \
+           f"输入 h/H 查看帮助菜单"
+    conn.send(Message(text=text, status=200).encode())
+
+
 @texas_sg.add('my_info')
 @login_required
-def get_rooms(server: TexasServer, conn):
-    pass
+def my_info(server: TexasServer, conn):
+    player = server.players[conn]
+    text = f"玩家<{player.name}>，筹码量 {player.chips}"
+    conn.send(Message(text=text, status=200).encode())
+
+
+@texas_sg.add('player_list')
+@login_required
+def player_list(server: TexasServer, conn):
+    player = server.players[conn]
+    room = player.room
+    text = '\n'.join([str(p) for p in room.players])
+    conn.send(Message(text=text, status=200).encode())
 
 
 @texas_sg.add('help')

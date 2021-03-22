@@ -108,12 +108,20 @@ class Room:
 
     def __init__(self):
         self.id = int(time.time())
-        self.players = dict()
+        self.players = []
         self.first_player = None
         self.last_player = None
 
+    def receive_player(self, player):
+        if not self.players:
+            self.first_player = player
+            self.last_player = player
+        player.prev = self.last_player
+        player.next = self.first_player
+        player.enter_room(self)
+
     def is_ready(self):
-        return all([player.is_ready() for player in self.players.values()])
+        return all([player.is_ready() for player in self.players])
 
 
 class Message:

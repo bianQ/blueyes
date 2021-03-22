@@ -94,6 +94,7 @@ class TexasPlayer(Player):
         self.checked = False
         self.folded = False
         self.bet_round_chips = 0
+        self.menu = None
 
     def bet(self, chips):
         self.bet_chips = chips
@@ -144,8 +145,8 @@ class TexasServer(PokerServer):
 class Element:
 
     def __init__(self, name, code, signal, description=None):
-        self.name = name,
-        self.code = code,
+        self.name = name
+        self.code = code
         self.signal = signal
         self.description = description
 
@@ -166,10 +167,11 @@ class TexasClient(PokerClient):
 
     def __init__(self, host='localhost', port=8889):
         super(TexasClient, self).__init__(host, port)
+        self.menu = None
 
     def login(self):
         username = input("请输入用户名：")
-        self.send('Texas.login', username=username)
+        self.send('Texas.login', username)
         recv = self.socket.recv(1024)
         self.logger.info(recv.decode())
         print()

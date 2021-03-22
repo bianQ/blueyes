@@ -119,12 +119,12 @@ class Room:
 
 class Message:
 
-    def __init__(self, signal, value):
+    def __init__(self, signal, args):
         self.signal = signal
-        self.value = value
+        self.args = args
 
     def encode(self):
-        return json.dumps({'signal': self.signal, 'value': self.value}).encode()
+        return json.dumps({'signal': self.signal, 'args': self.args}).encode()
 
     @classmethod
     def decode(cls, message):
@@ -156,7 +156,7 @@ class BaseSocket:
             self.logger.error(f"{message.signal} is not found")
             conn.send("指令错误，请重新输入".encode())
             return
-        func(self, conn, **message.value)
+        func(self, conn, *message.args)
 
     def register_event(self, signal, name):
         self.signals[name] = signal
@@ -172,16 +172,20 @@ class PokerServer(BaseSocket):
         self.socket.listen(n)
         self.rooms = []
 
+    def thread(self, conn):
+        while True:
+            try:
+                rec_msg = conn.recv(1024)
+                self.process(conn, Message.decode(rec_msg))
+            except ConnectionResetError:
+                pass
+
     def run(self):
         self.logger.info(f"socket:{self.host}:{self.port} 服务开启成功")
         while True:
             conn, _ = self.socket.accept()
-            try:
-                rec_msg = conn.recv(1024)
-                t = Thread(target=self.process, args=(conn, Message.decode(rec_msg)))
-                t.start()
-            except ConnectionResetError:
-                pass
+            t = Thread(target=self.thread, args=(conn, ))
+            t.start()
 
 
 class PokerClient(BaseSocket):
@@ -191,20 +195,23 @@ class PokerClient(BaseSocket):
         self.socket.connect((host, port))
         self.player = None
 
-    def print(self, msg):
-        print(msg)
+    def send(self, signal, *args):
+        self.socket.send(Message(signal=signal, args=args).encode())
 
-    def send(self, signal, **kwargs):
-        self.socket.send(Message(signal=signal, value=kwargs).encode())
+    def listen_input(self):
+        data = input()
+        args = [i for i in data.strip().split(' ') if i]
+        self.send(args[0], *args)
+
+    def recv(self):
+        while True:
+            print(self.socket.recv(1024).decode())
 
     def run(self):
+        t = Thread(target=self.recv)
+        t.start()
         while True:
-            # data = input()
-            # signal, value = data.strip().split(' ')
-            # send_msg = Message(signal=signal, value=value.strip())
-            # self.process(self.socket, send_msg)
-            rec_msg = self.socket.recv(1024)
-            self.print(rec_msg.decode())
+            self.listen_input()
 
 
 class Signal:

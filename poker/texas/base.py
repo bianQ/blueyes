@@ -53,6 +53,9 @@ class TexasRoom(Room):
         self.card_set = None
         self.status = 0
 
+    def __str__(self):
+        return f"Room-{self.id}"
+
     def deal(self):
         public_cards_num = len(self.card_set.public_cards)
         if public_cards_num == 0:
@@ -188,12 +191,12 @@ class TexasServer(BaseSocket):
         signal = self.signals.get(signal_name)
         if signal is None:
             self.logger.error(f"{message.signal} is not found")
-            conn.send("指令错误，请重新输入".encode())
+            conn.send(Message(text="指令错误，请重新输入").encode())
             return
         func = signal.deferred_functions.get(signal_value)
         if func is None:
             self.logger.error(f"{message.signal} is not found")
-            conn.send("指令错误，请重新输入".encode())
+            conn.send(Message(text="指令错误，请重新输入").encode())
             return
         func(self, conn, *message.args)
 
@@ -225,6 +228,14 @@ class TexasClient(BaseSocket):
         super().__init__()
         self.socket.connect((host, port))
         self.player = None
+        self.status = 'running'
+
+    def is_active(self):
+        return self.status == 'running'
+
+    def stop(self):
+        self.status = 'stopped'
+        self.send(signal='Texas.stop')
 
     def send(self, code=None, signal=None, args=()):
         self.socket.send(Message(code=code, signal=signal, args=args).encode())
@@ -234,22 +245,28 @@ class TexasClient(BaseSocket):
         if not data:
             return
         args = [i for i in data.strip().split(' ') if i]
+        if args[0] == 'q':
+            self.stop()
+            return
         self.send(code=args[0], args=args[1:])
 
     def recv(self):
-        while True:
-            rec_msg = Message.decode(self.socket.recv(1024))
+        while self.is_active():
+            recv = self.socket.recv(1024)
+            rec_msg = Message.decode(recv)
             print(rec_msg.text)
 
     def run(self):
         self.login()
         t = Thread(target=self.recv)
         t.start()
-        while True:
+        while self.is_active():
             self.listen_input()
 
     def login(self):
         username = input("请输入用户名：")
+        if not username:
+            self.login()
         self.send(signal='Texas.login', args=(username, ))
         recv = Message.decode(self.socket.recv(1024))
         self.logger.info(recv.text)

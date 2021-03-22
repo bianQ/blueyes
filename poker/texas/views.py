@@ -47,12 +47,25 @@ def login(server: TexasServer, conn, username, chips=None):
 @texas_sg.add('get_rooms')
 @login_required
 def get_rooms(server: TexasServer, conn):
-    for i in server.rooms:
-        print(i)
-    pass
+    text = '\n'.join([f"{i}\t{r}" for i, r in enumerate(server.rooms)]) or '无房间'
+    conn.send(Message(text=text, status=200).encode())
 
 
 @texas_sg.add('my_info')
 @login_required
 def get_rooms(server: TexasServer, conn):
     pass
+
+
+@texas_sg.add('help')
+@login_required
+def help_list(server: TexasServer, conn):
+    player = server.players[conn]
+    conn.send(Message(text=_format_menu(player.menu), status=200).encode())
+
+
+@texas_sg.add('stop')
+@login_required
+def stop(server: TexasServer, conn):
+    server.players.pop(conn, None)
+    conn.send(Message(text='', status=200).encode())

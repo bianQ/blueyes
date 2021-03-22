@@ -194,10 +194,12 @@ class TexasServer(BaseSocket):
         self.players = dict()
 
     def room_notice(self, room_index, text, ignore_players=None):
+        ignore_players = ignore_players or []
         for conn, player in self.players.items():
             room = self.rooms[int(room_index)]
             if player not in ignore_players and player.room == room:
                 conn.send(Message(text=text, status=200).encode())
+        self.logger.info(text)
 
     def process(self, conn: socket.socket, message: Message):
         """

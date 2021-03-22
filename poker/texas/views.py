@@ -120,6 +120,9 @@ def ready(server: TexasServer, conn):
         room.trigger()
         room.card_set.deal(room)
         server.room_notice(room_index, text="发牌完成")
+        for p in room.players:
+            cards = ''.join([str(card) for card in p.hole_cards])
+            server.logger.info(f"玩家<{p.name}>，底牌{cards}")
 
 
 @texas_sg.add('help')

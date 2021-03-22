@@ -11,11 +11,12 @@ from functools import wraps
 
 from poker import Message
 from poker.texas import texas_sg
-from poker.texas import TexasServer, TexasPlayer, HillMenu, TexasRoom, RoomMenu
+from poker.texas import TexasServer, TexasPlayer, HillMenu, TexasRoom, RoomMenu, GameMenu
 
 
-def _format_menu(menu):
-    return '\n'.join([str(m.value) for m in menu])
+def _format_menu(menu, ignore_list=None):
+    ignore_list = ignore_list or []
+    return '\n'.join([str(m.value) for m in menu if m.name not in ignore_list])
 
 
 def login_required(func):
@@ -121,15 +122,134 @@ def ready(server: TexasServer, conn):
         room.card_set.deal(room)
         server.room_notice(room_index, text="发牌完成")
         for p in room.players:
+            p.menu = GameMenu
             cards = ''.join([str(card) for card in p.hole_cards])
             server.logger.info(f"玩家<{p.name}>，底牌{cards}")
+            player_conn = server.get_conn(p)
+            player_conn.send(Message(text=p.show_cards(), status=200).encode())
+            if p == room.current_player:
+                player_conn.send(Message(text="请下注", status=200).encode())
+        server.room_notice(
+            room_index, text=f"等待玩家<{room.current_player.name}>下注", ignore_players=[room.current_player])
+
+
+@texas_sg.add('bet')
+@login_required
+def bet(server: TexasServer, conn, chips):
+    player = server.players[conn]
+    room_index = server.rooms.index(player.room)
+    player.bet(chips)
+    player.room.receive_chips(player, chips)
+    conn.send(Message(text=f"下注{chips}成功"))
+    server.room_notice(room_index, text=f"玩家<{player.name}>下注{chips}", ignore_players=[player])
+    if not player.room.is_bet_success():
+        current_player_conn = player.room.current_player
+        server.room_notice(
+            room_index,
+            text=f"等待玩家<{player.room.current_player.name}>下注",
+            ignore_players=[player.room.current_player])
+        current_player_conn.send(Message(text="请下注", status=200).encode())
+
+
+@texas_sg.add('check')
+@login_required
+def check(server: TexasServer, conn):
+    player = server.players[conn]
+    room_index = server.rooms.index(player.room)
+    player.check()
+    player.room.receive_chips(player, 0)
+    conn.send(Message(text=f"check成功"))
+    server.room_notice(room_index, text=f"玩家<{player.name}>check", ignore_players=[player])
+    if not player.room.is_bet_success():
+        current_player_conn = player.room.current_player
+        server.room_notice(
+            room_index,
+            text=f"等待玩家<{player.room.current_player.name}>下注",
+            ignore_players=[player.room.current_player])
+        current_player_conn.send(Message(text="请下注", status=200).encode())
+
+
+@texas_sg.add('call')
+@login_required
+def call(server: TexasServer, conn):
+    player = server.players[conn]
+    room_index = server.rooms.index(player.room)
+    public_bet = player.room.public_bet
+    player.call(public_bet)
+    player.room.receive_chips(player, public_bet)
+    conn.send(Message(text=f"跟注{player.call_chips}"))
+    server.room_notice(room_index, text=f"玩家<{player.name}>跟注{player.call_chips}", ignore_players=[player])
+    if not player.room.is_bet_success():
+        current_player_conn = player.room.current_player
+        server.room_notice(
+            room_index,
+            text=f"等待玩家<{player.room.current_player.name}>下注",
+            ignore_players=[player.room.current_player])
+        current_player_conn.send(Message(text="请下注", status=200).encode())
+
+
+@texas_sg.add('raise_')
+@login_required
+def raise_(server: TexasServer, conn, chips):
+    player = server.players[conn]
+    room_index = server.rooms.index(player.room)
+    public_bet = player.room.public_bet
+    bet_chips = player.bet_round_chips
+    player.raise_(public_bet, chips)
+    new_bet_chips = player.bet_round_chips - bet_chips
+    player.room.receive_chips(player, public_bet)
+    conn.send(Message(text=f"加注{player.raise_chips}到{new_bet_chips}"))
+    server.room_notice(room_index, text=f"玩家<{player.name}>加注到{new_bet_chips}", ignore_players=[player])
+    if not player.room.is_bet_success():
+        current_player_conn = player.room.current_player
+        server.room_notice(
+            room_index,
+            text=f"等待玩家<{player.room.current_player.name}>下注",
+            ignore_players=[player.room.current_player])
+        current_player_conn.send(Message(text="请下注", status=200).encode())
+
+
+@texas_sg.add('folded')
+@login_required
+def folded(server: TexasServer, conn):
+    player = server.players[conn]
+    room_index = server.rooms.index(player.room)
+    player.fold()
+    player.room.receive_chips(player, 0)
+    conn.send(Message(text=f"已弃牌"))
+    server.room_notice(room_index, text=f"玩家<{player.name}>弃牌", ignore_players=[player])
+    if not player.room.is_bet_success():
+        current_player_conn = player.room.current_player
+        server.room_notice(
+            room_index,
+            text=f"等待玩家<{player.room.current_player.name}>下注",
+            ignore_players=[player.room.current_player])
+        current_player_conn.send(Message(text="请下注", status=200).encode())
+
+
+@texas_sg.add('show_cards')
+@login_required
+def show_cards(server: TexasServer, conn):
+    player = server.players[conn]
+    conn.send(Message(text=player.show_cards()).encode())
 
 
 @texas_sg.add('help')
 @login_required
 def help_list(server: TexasServer, conn):
     player = server.players[conn]
-    conn.send(Message(text=_format_menu(player.menu), status=200).encode())
+    ignore_list = []
+    if isinstance(player.menu, GameMenu):
+        if player != player.room.current_player or player.folded:
+            ignore_list = ['bet', 'check', 'raise_', 'fold', 'call', 'allin']
+        else:
+            if player.room.public_bet == 0:
+                ignore_list.extend(['raise_', 'call'])
+            if player.room.public_bet > 0:
+                ignore_list.append('check')
+            if player.room.public_bet > player.chips:
+                ignore_list.extend(['bet', 'raise_', 'call'])
+    conn.send(Message(text=_format_menu(player.menu, ignore_list), status=200).encode())
 
 
 @texas_sg.add('stop')

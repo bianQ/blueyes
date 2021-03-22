@@ -66,6 +66,30 @@ class RoomMenu(Enum):
         return cls.__SignalMap__.get(code)
 
 
+class GameMenu(Enum):
+
+    __SignalMap__ = {}
+
+    show_cards = Element('查看底牌', 'a', 'Texas.show_cards')
+    bet = Element('下注', 'b', 'Texas.bet')
+    check = Element('过牌', 'c', 'Texas.check')
+    raise_ = Element('加注', 'd', 'Texas.raise_')
+    fold = Element('弃牌', 'e', 'Texas.fold')
+    call = Element('跟注', 'f', 'Texas.call')
+    allin = Element('全推', 'g', 'Texas.allin')
+    help = Element('帮助', 'h', 'Texas.help')
+    quit = Element('退出游戏', 'q', 'Texas.quit')
+
+    def __init__(self, element: Element):
+        self.code = element.code
+        self.signal = element.signal
+        self.__class__.__SignalMap__[self.code] = self.signal
+
+    @classmethod
+    def get_signal(cls, code):
+        return cls.__SignalMap__.get(code)
+
+
 class TexasRoom(Room):
 
     def __init__(self):
@@ -73,6 +97,7 @@ class TexasRoom(Room):
         self.pot = 0
         self.card_set = None
         self.status = 0
+        self.public_bet = 0
 
     def __str__(self):
         return f"Room-{self.id}"
@@ -86,21 +111,25 @@ class TexasRoom(Room):
         elif public_cards_num == 4:
             self.card_set.river()
 
-    def receive_chips(self, username, chip):
-        bet_player = self.players[username]
+    def receive_chips(self, player, chip):
         self.pot += chip
-        self.switch_player()
-        if all([player.bet_success() for player in self.players.values()]):
+        self.public_bet = max(chip, self.public_bet)
+        self.switch_player(player.next)
+        if all([player.bet_success(self.public_bet) for player in self.players.values()]):
             self.deal_public()
-        return bet_player.next
 
-    def switch_player(self):
-        return
+    def switch_player(self, player):
+        self.current_player = player
+        if self.current_player.folded():
+            self.switch_player(self.current_player.next)
 
     def trigger(self):
         if self.is_ready():
             self.card_set = TexasCardSet(values=range(2, 15))
             self.card_set.shuffle()
+
+    def is_bet_success(self):
+        return all([player.bet_success(self.public_bet) for player in self.players])
 
 
 class TexasCardSet(CardSet):
@@ -178,6 +207,10 @@ class TexasPlayer(Player):
     def fold(self):
         self.folded = True
 
+    @property
+    def is_allin(self):
+        return self.all_in_chips > 0
+
     def bet_success(self, public_bet):
         return self.bet_round_chips == public_bet or self.all_in_chips > 0
 
@@ -228,6 +261,11 @@ class TexasServer(BaseSocket):
             conn.send(Message(text="指令错误，请重新输入").encode())
             return
         func(self, conn, *message.args)
+
+    def get_conn(self, player):
+        for conn, p in self.players.items():
+            if p == player:
+                return conn
 
     def thread(self, conn):
         while True:

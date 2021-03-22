@@ -204,6 +204,8 @@ class TexasServer(BaseSocket):
         while True:
             try:
                 rec_msg = conn.recv(1024)
+                if not rec_msg:
+                    return
                 self.process(conn, Message.decode(rec_msg))
             except ConnectionResetError:
                 pass

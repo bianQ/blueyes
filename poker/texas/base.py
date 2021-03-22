@@ -77,7 +77,7 @@ class TexasRoom(Room):
     def __str__(self):
         return f"Room-{self.id}"
 
-    def deal(self):
+    def deal_public(self):
         public_cards_num = len(self.card_set.public_cards)
         if public_cards_num == 0:
             self.card_set.flop()
@@ -91,7 +91,7 @@ class TexasRoom(Room):
         self.pot += chip
         self.switch_player()
         if all([player.bet_success() for player in self.players.values()]):
-            self.deal()
+            self.deal_public()
         return bet_player.next
 
     def switch_player(self):
@@ -113,7 +113,7 @@ class TexasCardSet(CardSet):
         play_nums = len(room.players)
         for index in range(2 * play_nums):
             card = self.cards.pop(0)
-            player = room.players(index % play_nums)
+            player = room.players[index % play_nums]
             player.hole_cards.append(card)
 
     def _deal_public(self, num=1):
@@ -148,7 +148,7 @@ class TexasPlayer(Player):
         self.role = None
 
     def __str__(self):
-        return f"<{self.name}> 筹码量 {self.chips}{' 已准备' if self.ready() else ''}"
+        return f"<{self.name}> 筹码量 {self.chips}{' 已准备' if self.is_ready() else ''}"
 
     def bet(self, chips):
         self.bet_chips = chips
@@ -193,6 +193,12 @@ class TexasServer(BaseSocket):
         self.rooms = []
         self.players = dict()
 
+    def room_notice(self, room_index, text, ignore_players=None):
+        for conn, player in self.players.items():
+            room = self.rooms[int(room_index)]
+            if player not in ignore_players and player.room == room:
+                conn.send(Message(text=text, status=200).encode())
+
     def process(self, conn: socket.socket, message: Message):
         """
         根据 signal 获取执行函数并调用
@@ -208,7 +214,7 @@ class TexasServer(BaseSocket):
             if _signal:
                 signal_name, signal_value = _signal.split('.')
             else:
-                signal_name = None
+                signal_name = signal_value = None
         signal = self.signals.get(signal_name)
         if signal is None:
             self.logger.error(f"{message.signal} is not found")

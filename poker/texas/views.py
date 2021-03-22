@@ -74,17 +74,20 @@ def enter_room(server: TexasServer, conn, room_index):
     text = f"进入房间成功，房间ID {room.id}\n" \
            f"输入 h/H 查看帮助菜单"
     conn.send(Message(text=text, status=200).encode())
+    server.room_notice(room_index, text=f"玩家<{player.name}> 进入房间", ignore_players=[player])
 
 
 @texas_sg.add('exit_room')
 @login_required
-def exit_room(server: TexasServer, conn, room_index):
+def exit_room(server: TexasServer, conn):
     player = server.players[conn]
+    room_index = server.rooms.index(player.room)
     player.exit_room()
     player.menu = HillMenu
     text = f"已退出房间\n" \
            f"输入 h/H 查看帮助菜单"
     conn.send(Message(text=text, status=200).encode())
+    server.room_notice(room_index, text=f"玩家<{player.name}> 退出房间", ignore_players=[player])
 
 
 @texas_sg.add('my_info')
@@ -102,6 +105,21 @@ def player_list(server: TexasServer, conn):
     room = player.room
     text = '\n'.join([str(p) for p in room.players])
     conn.send(Message(text=text, status=200).encode())
+
+
+@texas_sg.add('ready')
+@login_required
+def ready(server: TexasServer, conn):
+    player = server.players[conn]
+    player.ready()
+    conn.send(Message(text=f"已准备，等待其他玩家准备", status=200).encode())
+    room = player.room
+    if room.is_ready():
+        room_index = server.rooms.index(room)
+        server.room_notice(room_index, text="牌局开始")
+        room.trigger()
+        room.card_set.deal(room)
+        server.room_notice(room_index, text="发牌完成")
 
 
 @texas_sg.add('help')

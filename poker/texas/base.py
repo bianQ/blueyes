@@ -245,10 +245,12 @@ class TexasServer(BaseSocket):
             signal_name, signal_value = message.signal.split('.')
         else:
             player = self.players[conn]
-            # todo 检测请求视图是否被允许
             _signal = player.menu.get_signal(message.code)
             if _signal:
+                ignore_list = ignore_menu(player)
                 signal_name, signal_value = _signal.split('.')
+                if signal_value in ignore_list:
+                    signal_name = None
             else:
                 signal_name = signal_value = None
         signal = self.signals.get(signal_name)

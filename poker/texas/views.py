@@ -139,12 +139,12 @@ def ready(server: TexasServer, conn):
 def bet(server: TexasServer, conn, chips):
     player = server.players[conn]
     room_index = server.rooms.index(player.room)
-    player.bet(chips)
-    player.room.receive_chips(player, chips)
-    conn.send(Message(text=f"下注{chips}成功"))
+    player.bet(int(chips))
+    conn.send(Message(text=f"下注{chips}成功").encode())
     server.room_notice(room_index, text=f"玩家<{player.name}>下注{chips}", ignore_players=[player])
+    player.room.receive_chips(player, int(chips))
     if not player.room.is_bet_success():
-        current_player_conn = player.room.current_player
+        current_player_conn = server.get_conn(player.room.current_player)
         server.room_notice(
             room_index,
             text=f"等待玩家<{player.room.current_player.name}>下注",
@@ -158,11 +158,11 @@ def check(server: TexasServer, conn):
     player = server.players[conn]
     room_index = server.rooms.index(player.room)
     player.check()
-    player.room.receive_chips(player, 0)
-    conn.send(Message(text=f"check成功"))
+    conn.send(Message(text=f"check成功").encode())
     server.room_notice(room_index, text=f"玩家<{player.name}>check", ignore_players=[player])
+    player.room.receive_chips(player, 0)
     if not player.room.is_bet_success():
-        current_player_conn = player.room.current_player
+        current_player_conn = server.get_conn(player.room.current_player)
         server.room_notice(
             room_index,
             text=f"等待玩家<{player.room.current_player.name}>下注",
@@ -177,11 +177,11 @@ def call(server: TexasServer, conn):
     room_index = server.rooms.index(player.room)
     public_bet = player.room.public_bet
     player.call(public_bet)
-    player.room.receive_chips(player, public_bet)
-    conn.send(Message(text=f"跟注{player.call_chips}"))
+    conn.send(Message(text=f"跟注{player.call_chips}").encode())
     server.room_notice(room_index, text=f"玩家<{player.name}>跟注{player.call_chips}", ignore_players=[player])
+    player.room.receive_chips(player, player.call_chips)
     if not player.room.is_bet_success():
-        current_player_conn = player.room.current_player
+        current_player_conn = server.get_conn(player.room.current_player)
         server.room_notice(
             room_index,
             text=f"等待玩家<{player.room.current_player.name}>下注",
@@ -196,13 +196,13 @@ def raise_(server: TexasServer, conn, chips):
     room_index = server.rooms.index(player.room)
     public_bet = player.room.public_bet
     bet_chips = player.bet_round_chips
-    player.raise_(public_bet, chips)
+    player.raise_(public_bet, int(chips))
     new_bet_chips = player.bet_round_chips - bet_chips
-    player.room.receive_chips(player, public_bet)
-    conn.send(Message(text=f"加注{player.raise_chips}到{new_bet_chips}"))
+    conn.send(Message(text=f"加注{player.raise_chips}到{new_bet_chips}").encode())
     server.room_notice(room_index, text=f"玩家<{player.name}>加注到{new_bet_chips}", ignore_players=[player])
+    player.room.receive_chips(player, new_bet_chips)
     if not player.room.is_bet_success():
-        current_player_conn = player.room.current_player
+        current_player_conn = server.get_conn(player.room.current_player)
         server.room_notice(
             room_index,
             text=f"等待玩家<{player.room.current_player.name}>下注",
@@ -210,17 +210,35 @@ def raise_(server: TexasServer, conn, chips):
         current_player_conn.send(Message(text="请下注", status=200).encode())
 
 
-@texas_sg.add('folded')
+@texas_sg.add('fold')
 @login_required
-def folded(server: TexasServer, conn):
+def fold(server: TexasServer, conn):
     player = server.players[conn]
     room_index = server.rooms.index(player.room)
     player.fold()
-    player.room.receive_chips(player, 0)
-    conn.send(Message(text=f"已弃牌"))
+    conn.send(Message(text=f"已弃牌").encode())
     server.room_notice(room_index, text=f"玩家<{player.name}>弃牌", ignore_players=[player])
+    player.room.receive_chips(player, 0)
     if not player.room.is_bet_success():
-        current_player_conn = player.room.current_player
+        current_player_conn = server.get_conn(player.room.current_player)
+        server.room_notice(
+            room_index,
+            text=f"等待玩家<{player.room.current_player.name}>下注",
+            ignore_players=[player.room.current_player])
+        current_player_conn.send(Message(text="请下注", status=200).encode())
+
+
+@texas_sg.add('allin')
+@login_required
+def allin(server: TexasServer, conn):
+    player = server.players[conn]
+    room_index = server.rooms.index(player.room)
+    player.allin()
+    conn.send(Message(text=f"All in {player.allin_chips}").encode())
+    server.room_notice(room_index, text=f"玩家<{player.name}> 全推", ignore_players=[player])
+    player.room.receive_chips(player, player.allin_chips)
+    if not player.room.is_bet_success():
+        current_player_conn = server.get_conn(player.room.current_player)
         server.room_notice(
             room_index,
             text=f"等待玩家<{player.room.current_player.name}>下注",

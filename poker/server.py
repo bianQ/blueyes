@@ -6,11 +6,7 @@
 @Author:    bian
 @File:      server.py
 """
-
-from poker.texas.base import TexasServer
-from poker.texas import texas_sg
+from poker import server
 
 
-server = TexasServer()
-server.register_event(texas_sg, 'Texas')
 server.run()

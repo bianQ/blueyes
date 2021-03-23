@@ -6,6 +6,7 @@
 @time:2021/03/13
 """
 import socket
+import time
 from threading import Thread
 from enum import Enum
 
@@ -104,24 +105,49 @@ class TexasRoom(Room):
         return f"Room-{self.id}"
 
     def deal_public(self):
+        from poker import server
+
         public_cards_num = len(self.card_set.public_cards)
+        room_index = server.rooms.index(self)
         if public_cards_num == 0:
             self.card_set.flop()
+            public_cards = ''.join([str(c) for c in self.card_set.public_cards])
+            server.room_notice(room_index, f"翻牌：{public_cards}")
         elif public_cards_num == 3:
             self.card_set.turn()
+            server.room_notice(room_index, f"转牌：{str(self.card_set.public_cards[-1])}")
         elif public_cards_num == 4:
             self.card_set.river()
+            server.room_notice(room_index, f"河牌：{str(self.card_set.public_cards[-1])}")
+        elif public_cards_num == 5:
+            return
+        public_cards = ''.join([str(c) for c in self.card_set.public_cards])
+        server.room_notice(room_index, f"公牌：{public_cards}")
+        if self.show_time():
+            if self.pk_round():
+                time.sleep(1)
+                self.showdown()
+            else:
+                time.sleep(1)
+                self.deal_public()
+        else:
+            self.public_bet = 0
+            for player in self.players:
+                player.clear_bet()
 
     def receive_chips(self, player, chip):
         self.pot += chip
         self.public_bet = max(chip, self.public_bet)
         self.switch_player(player.next)
-        if all([player.bet_success(self.public_bet) for player in self.players.values()]):
-            self.deal_public()
+        if all([player.bet_success(self.public_bet) for player in self.players]):
+            if self.pk_round():
+                self.showdown()
+            else:
+                self.deal_public()
 
     def switch_player(self, player):
         self.current_player = player
-        if self.current_player.folded():
+        if self.current_player.folded:
             self.switch_player(self.current_player.next)
 
     def trigger(self):
@@ -131,6 +157,26 @@ class TexasRoom(Room):
 
     def is_bet_success(self):
         return all([player.bet_success(self.public_bet) for player in self.players])
+
+    def pk_round(self):
+        return len(self.card_set.public_cards) == 5
+
+    def showdown(self):
+        from poker import server
+
+        player_cards = []
+        for player in self.players:
+            if not player.folded:
+                player_cards.append(f"玩家<{player.name}>：{''.join([str(card) for card in player.hole_cards])}")
+        text = '\n'.join(player_cards)
+        room_index = server.rooms.index(self)
+        server.room_notice(room_index, text)
+        # todo 比牌
+
+    # 跑马决胜负
+    def show_time(self):
+        allin_players = [player for player in self.players if player.is_allin]
+        return len(allin_players) >= len(self.players) - 1 and self.is_bet_success()
 
 
 class TexasCardSet(CardSet):
@@ -169,7 +215,7 @@ class TexasPlayer(Player):
         self.call_chips = 0
         self.bet_chips = 0
         self.raise_chips = 0
-        self.all_in_chips = 0
+        self.allin_chips = 0
         self.checked = False
         self.folded = False
         self.bet_round_chips = 0
@@ -191,8 +237,8 @@ class TexasPlayer(Player):
         self.chips -= chips
         self.call_chips = 0
 
-    def all_in(self):
-        self.all_in_chips = self.chips
+    def allin(self):
+        self.allin_chips = self.chips
         self.bet_round_chips += self.chips
         self.chips = 0
 
@@ -201,18 +247,27 @@ class TexasPlayer(Player):
 
     def call(self, public_bet):
         self.call_chips = public_bet - self.bet_round_chips
-        self.bet_round_chips += public_bet
+        self.bet_round_chips += self.call_chips
         self.chips -= self.call_chips
 
     def fold(self):
+        # todo 判断弃牌后是否牌局结束
         self.folded = True
 
     @property
     def is_allin(self):
-        return self.all_in_chips > 0
+        return self.allin_chips > 0
 
     def bet_success(self, public_bet):
-        return self.bet_round_chips == public_bet or self.all_in_chips > 0
+        return (self.bet_round_chips == public_bet and public_bet != 0) or \
+               self.allin_chips > 0 or (self.checked and public_bet == 0) or self.folded
+
+    def clear_bet(self):
+        self.call_chips = 0
+        self.bet_chips = 0
+        self.raise_chips = 0
+        self.bet_round_chips = 0
+        self.checked = False
 
 
 class TexasServer(BaseSocket):
@@ -263,10 +318,11 @@ class TexasServer(BaseSocket):
             self.logger.error(f"{message.signal} is not found")
             conn.send(Message(text="指令错误，请重新输入").encode())
             return
-        try:
-            func(self, conn, *message.args)
-        except Exception as e:
-            conn.send(Message(text=str(e)).encode())
+        func(self, conn, *message.args)
+        # try:
+        #     func(self, conn, *message.args)
+        # except Exception as e:
+        #     conn.send(Message(text=str(e)).encode())
 
     def get_conn(self, player):
         for conn, p in self.players.items():
@@ -295,55 +351,3 @@ class TexasServer(BaseSocket):
         room = TexasRoom()
         room.receive_player(player)
         self.rooms.append(room)
-
-
-class TexasClient(BaseSocket):
-
-    def __init__(self, host='localhost', port=8899):
-        super().__init__()
-        self.socket.connect((host, port))
-        self.player = None
-        self.status = 'running'
-
-    def is_active(self):
-        return self.status == 'running'
-
-    def stop(self):
-        self.status = 'stopped'
-        self.send(signal='Texas.stop')
-
-    def send(self, code=None, signal=None, args=()):
-        self.socket.send(Message(code=code, signal=signal, args=args).encode())
-
-    def listen_input(self):
-        data = input()
-        if not data:
-            return
-        args = [i for i in data.strip().split(' ') if i]
-        if args[0] == 'q':
-            self.stop()
-            return
-        self.send(code=args[0], args=args[1:])
-
-    def recv(self):
-        while self.is_active():
-            recv = self.socket.recv(1024)
-            rec_msg = Message.decode(recv)
-            print(rec_msg.text)
-
-    def run(self):
-        self.login()
-        t = Thread(target=self.recv)
-        t.start()
-        while self.is_active():
-            self.listen_input()
-
-    def login(self):
-        username = input("请输入用户名：")
-        if not username:
-            self.login()
-        self.send(signal='Texas.login', args=(username, ))
-        recv = Message.decode(self.socket.recv(1024))
-        self.logger.info(recv.text)
-        if not recv.is_success():
-            self.login()

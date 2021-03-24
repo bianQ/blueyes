@@ -10,7 +10,7 @@
 def ignore_menu(player):
     ignore_list = []
     if player.menu.__name__ == 'GameMenu':
-        if player != player.room.current_player or player.folded or player.room.pk_round():
+        if player != player.room.current_player or player.folded or player.room.is_pk_round():
             ignore_list = ['bet', 'check', 'raise_', 'fold', 'call', 'allin']
         else:
             if player.room.public_bet == 0:

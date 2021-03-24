@@ -100,6 +100,7 @@ class TexasRoom(Room):
         self.card_set = None
         self.status = 0
         self.public_bet = 0
+        self.winners = []
 
     def __str__(self):
         return f"Room-{self.id}"
@@ -123,8 +124,8 @@ class TexasRoom(Room):
             return
         public_cards = ''.join([str(c) for c in self.card_set.public_cards])
         server.room_notice(room_index, f"公牌：{public_cards}")
-        if self.show_time():
-            if self.pk_round():
+        if self.is_show_time():
+            if self.is_pk_round():
                 time.sleep(1)
                 self.showdown()
             else:
@@ -140,7 +141,7 @@ class TexasRoom(Room):
         self.public_bet = max(chip, self.public_bet)
         self.switch_player(player.next)
         if all([player.bet_success(self.public_bet) for player in self.players]):
-            if self.pk_round():
+            if self.is_pk_round():
                 self.showdown()
             else:
                 self.deal_public()
@@ -158,25 +159,43 @@ class TexasRoom(Room):
     def is_bet_success(self):
         return all([player.bet_success(self.public_bet) for player in self.players])
 
-    def pk_round(self):
+    def is_pk_round(self):
         return len(self.card_set.public_cards) == 5
 
+    # 比牌
+    def compare(self):
+        return
+
+    # 亮牌
     def showdown(self):
         from poker import server
 
-        player_cards = []
+        player_cards_str = []
         for player in self.players:
             if not player.folded:
-                player_cards.append(f"玩家<{player.name}>：{''.join([str(card) for card in player.hole_cards])}")
-        text = '\n'.join(player_cards)
+                player_cards_str.append(f"玩家<{player.name}>：{''.join([str(card) for card in player.hole_cards])}")
+        text = '\n'.join(player_cards_str)
         room_index = server.rooms.index(self)
         server.room_notice(room_index, text)
         # todo 比牌
+        self.compare()
+
+    # 牌局是否提前结束
+    def is_round_over(self):
+        no_folded = [player for player in self.players if not player.folded]
+        if len(no_folded) == 1:
+            self.winners.append(no_folded[0])
+            return True
+        return False
 
     # 跑马决胜负
-    def show_time(self):
+    def is_show_time(self):
         allin_players = [player for player in self.players if player.is_allin]
         return len(allin_players) >= len(self.players) - 1 and self.is_bet_success()
+
+    # 结算筹码
+    def settlement(self):
+        return
 
 
 class TexasCardSet(CardSet):
@@ -253,6 +272,8 @@ class TexasPlayer(Player):
     def fold(self):
         # todo 判断弃牌后是否牌局结束
         self.folded = True
+        if self.room.is_round_over():
+            self.room.settlement()
 
     @property
     def is_allin(self):

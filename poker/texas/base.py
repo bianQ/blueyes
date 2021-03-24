@@ -12,7 +12,7 @@ from threading import Thread
 from enum import Enum
 
 from poker import BaseSocket, CardSet, Player, Room, Message
-from poker.texas.func import ignore_menu
+from poker.texas.func import ignore_menu, max_card_sets
 
 
 class Element:
@@ -73,13 +73,14 @@ class GameMenu(Enum):
 
     __SignalMap__ = {}
 
-    show_cards = Element('查看底牌', 'a', 'Texas.show_cards')
+    my_info = Element('个人信息', 'a', 'Texas.my_info')
     bet = Element('下注', 'b', 'Texas.bet')
     check = Element('过牌', 'c', 'Texas.check')
     raise_ = Element('加注', 'd', 'Texas.raise_')
     fold = Element('弃牌', 'e', 'Texas.fold')
     call = Element('跟注', 'f', 'Texas.call')
     allin = Element('全推', 'g', 'Texas.allin')
+    show_cards = Element('查看底牌', 's', 'Texas.show_cards')
     help = Element('帮助', 'h', 'Texas.help')
     quit = Element('退出游戏', 'q', 'Texas.quit')
 
@@ -102,7 +103,7 @@ class TexasRoom(Room):
         self.status = 0
         self.public_bet = 0
         self.rest_players = []  # 没有弃牌的玩家
-        self.winners = []
+        self.winner = None
 
     def __str__(self):
         return f"Room-{self.id}"
@@ -142,6 +143,7 @@ class TexasRoom(Room):
         self.pot += chip
         self.public_bet = max(chip, self.public_bet)
         self.switch_player(player.next)
+        print(self.public_bet)
         if all([player.bet_success(self.public_bet) for player in self.players]):
             if self.is_pk_round():
                 self.showdown()
@@ -163,7 +165,7 @@ class TexasRoom(Room):
         return all([player.bet_success(self.public_bet) for player in self.players])
 
     def is_pk_round(self):
-        return len(self.card_set.public_cards) == 5
+        return self.card_set is not None and len(self.card_set.public_cards) == 5
 
     # 比牌
     def compare(self):
@@ -171,9 +173,9 @@ class TexasRoom(Room):
         for player in self.rest_players:
             player_card_set = itertools.combinations([*self.card_set.public_cards, *player.hole_cards], 5)
             for card_set in player_card_set:
-                card_set_dict[card_set] = player
-
-        return
+                card_set_dict[tuple(sorted(card_set))] = player
+        return {player: card_set for card_set, player in card_set_dict.items()
+                if card_set in max_card_sets(card_set_dict.keys())}
 
     # 亮牌
     def showdown(self):
@@ -181,18 +183,26 @@ class TexasRoom(Room):
 
         player_cards_str = []
         for player in self.rest_players:
-            player_cards_str.append(f"玩家<{player.name}>：{''.join([str(card) for card in player.hole_cards])}")
+            player_cards_str.append(f"玩家<{player.name}>底牌{''.join([str(card) for card in player.hole_cards])}")
         text = '\n'.join(player_cards_str)
         room_index = server.rooms.index(self)
         server.room_notice(room_index, text)
         # todo 比牌
-        self.compare()
+        max_card_dict = self.compare()
+        winner_count = len(max_card_dict)
+        for player, card_set in max_card_dict.items():
+            win_chips = int(self.pot / winner_count)
+            server.room_notice(
+                room_index,
+                f"玩家<{player.name}>获胜，底牌{''.join([str(card) for card in card_set])}，赢得底池{win_chips}")
+            player.chips += win_chips
+        self.reload()
 
     # 牌局是否提前结束
     def is_round_over(self):
         no_folded = [player for player in self.players if not player.folded]
         if len(no_folded) == 1:
-            self.winners.append(no_folded[0])
+            self.winner = no_folded[0]
             return True
         return False
 
@@ -201,9 +211,23 @@ class TexasRoom(Room):
         allin_players = [player for player in self.players if player.is_allin]
         return len(allin_players) >= len(self.players) - 1 and self.is_bet_success()
 
-    # 结算筹码
+    # 不比牌，直接结算
     def settlement(self):
-        return
+        from poker.server import server
+
+        room_index = server.rooms.index(self)
+        server.room_notice(room_index, f"玩家<{self.winner.name}>获胜，赢得{self.pot}")
+        self.winner.chips += self.pot
+        self.reload()
+
+    def reload(self):
+        self.pot = 0
+        self.card_set = None
+        self.public_bet = 0
+        self.rest_players = self.players
+        self.winner = None
+        for player in self.players:
+            player.reload()
 
 
 class TexasCardSet(CardSet):
@@ -291,12 +315,22 @@ class TexasPlayer(Player):
         return (self.bet_round_chips == public_bet and public_bet != 0) or \
                self.allin_chips > 0 or (self.checked and public_bet == 0) or self.folded
 
+    # 清理下注记录，不包括allin
     def clear_bet(self):
         self.call_chips = 0
         self.bet_chips = 0
         self.raise_chips = 0
         self.bet_round_chips = 0
         self.checked = False
+
+    # 清理所有下注记录、状态
+    def reload(self):
+        self.clear_bet()
+        self.allin_chips = 0
+        self.folded = False
+        self.status = 0
+        self.hole_cards = []
+        self.menu = RoomMenu
 
 
 class TexasServer(BaseSocket):

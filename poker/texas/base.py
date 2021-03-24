@@ -7,6 +7,7 @@
 """
 import socket
 import time
+import itertools
 from threading import Thread
 from enum import Enum
 
@@ -100,6 +101,7 @@ class TexasRoom(Room):
         self.card_set = None
         self.status = 0
         self.public_bet = 0
+        self.rest_players = []  # 没有弃牌的玩家
         self.winners = []
 
     def __str__(self):
@@ -155,6 +157,7 @@ class TexasRoom(Room):
         if self.is_ready():
             self.card_set = TexasCardSet(values=range(2, 15))
             self.card_set.shuffle()
+            self.rest_players = self.players
 
     def is_bet_success(self):
         return all([player.bet_success(self.public_bet) for player in self.players])
@@ -164,6 +167,12 @@ class TexasRoom(Room):
 
     # 比牌
     def compare(self):
+        card_set_dict = {}
+        for player in self.rest_players:
+            player_card_set = itertools.combinations([*self.card_set.public_cards, *player.hole_cards], 5)
+            for card_set in player_card_set:
+                card_set_dict[card_set] = player
+
         return
 
     # 亮牌
@@ -171,9 +180,8 @@ class TexasRoom(Room):
         from poker import server
 
         player_cards_str = []
-        for player in self.players:
-            if not player.folded:
-                player_cards_str.append(f"玩家<{player.name}>：{''.join([str(card) for card in player.hole_cards])}")
+        for player in self.rest_players:
+            player_cards_str.append(f"玩家<{player.name}>：{''.join([str(card) for card in player.hole_cards])}")
         text = '\n'.join(player_cards_str)
         room_index = server.rooms.index(self)
         server.room_notice(room_index, text)
@@ -270,8 +278,8 @@ class TexasPlayer(Player):
         self.chips -= self.call_chips
 
     def fold(self):
-        # todo 判断弃牌后是否牌局结束
         self.folded = True
+        self.room.rest_players.remove(self)
         if self.room.is_round_over():
             self.room.settlement()
 

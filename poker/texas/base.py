@@ -143,7 +143,6 @@ class TexasRoom(Room):
         self.pot += chip
         self.public_bet = max(chip, self.public_bet)
         self.switch_player(player.next)
-        print(self.public_bet)
         if all([player.bet_success(self.public_bet) for player in self.players]):
             if self.is_pk_round():
                 self.showdown()
